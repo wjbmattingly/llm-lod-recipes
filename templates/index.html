@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple NER Annotator</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f8f9fa;
+        }
+        
+        .annotation-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .text-display {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 30px;
+            font-size: 18px;
+            line-height: 2.2;
+            min-height: 300px;
+            margin-bottom: 20px;
+            user-select: text;
+            cursor: text;
+            position: relative;
+        }
+        
+        .text-display::selection {
+            background: rgba(0, 123, 255, 0.2);
+        }
+        
+        .text-display::-moz-selection {
+            background: rgba(0, 123, 255, 0.2);
+        }
+        
+        .entity {
+            padding: 2px 4px;
+            margin: 0 1px;
+            border-radius: 3px;
+            cursor: pointer;
+            position: relative;
+            display: inline;
+            transition: all 0.2s ease;
+        }
+        
+        .entity:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .entity.selected {
+            outline: 2px solid #007bff;
+            outline-offset: 1px;
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+        }
+        
+        .selection-highlight {
+            background: linear-gradient(90deg, 
+                rgba(255, 235, 59, 0.4) 0%, 
+                rgba(255, 235, 59, 0.6) 50%, 
+                rgba(255, 235, 59, 0.4) 100%);
+            border-radius: 2px;
+            padding: 1px 2px;
+            animation: selectionPulse 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes selectionPulse {
+            0%, 100% { 
+                background: rgba(255, 235, 59, 0.4);
+            }
+            50% { 
+                background: rgba(255, 235, 59, 0.7);
+            }
+        }
+        
+        .entity-label {
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 4px;
+            opacity: 0.8;
+        }
+        
+        /* Entity colors */
+        .entity-PERSON { background-color: #aa9cfc; }
+        .entity-ORG { background-color: #7aecec; }
+        .entity-GPE { background-color: #feca57; }
+        .entity-LOC { background-color: #ff9ff3; }
+        .entity-DATE { background-color: #bfe1d9; }
+        .entity-TIME { background-color: #bfe1d9; }
+        .entity-MONEY { background-color: #e4e7d2; }
+        .entity-PERCENT { background-color: #e4e7d2; }
+        .entity-CARDINAL { background-color: #e4e7d2; }
+        .entity-ORDINAL { background-color: #e4e7d2; }
+        
+        .controls {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .entity-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+        
+        .entity-btn {
+            padding: 6px 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: white;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+        
+        .entity-btn:hover {
+            background: #f0f0f0;
+        }
+        
+        .entity-btn.PERSON { border-color: #aa9cfc; }
+        .entity-btn.ORG { border-color: #7aecec; }
+        .entity-btn.GPE { border-color: #feca57; }
+        .entity-btn.LOC { border-color: #ff9ff3; }
+        .entity-btn.DATE { border-color: #bfe1d9; }
+        .entity-btn.TIME { border-color: #bfe1d9; }
+        .entity-btn.MONEY { border-color: #e4e7d2; }
+        .entity-btn.PERCENT { border-color: #e4e7d2; }
+        .entity-btn.CARDINAL { border-color: #e4e7d2; }
+        .entity-btn.ORDINAL { border-color: #e4e7d2; }
+        
+        .selection-info {
+            background: #e3f2fd;
+            border: 1px solid #90caf9;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        
+        .edit-controls {
+            background: #fff3e0;
+            border: 1px solid #ffb74d;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .stats {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="annotation-container">
+        <!-- Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2 class="mb-0">Simple NER Annotator</h2>
+            <div class="d-flex gap-2">
+                <select id="file-selector" class="form-select" style="width: 300px;">
+                    <option value="">Select a file...</option>
+                    {% for file in text_files %}
+                    <option value="{{ file }}">{{ file }}</option>
+                    {% endfor %}
+                </select>
+                <button id="load-file" class="btn btn-primary" disabled>Load</button>
+                <button id="export-btn" class="btn btn-success" disabled>Export</button>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls hidden" id="annotation-controls">
+            <!-- Selection Info -->
+            <div id="selection-info" class="selection-info hidden">
+                <strong>Selected text:</strong> <span id="selected-text"></span>
+                <div class="entity-buttons">
+                    <button class="entity-btn PERSON" onclick="createEntity('PERSON')" title="Press 1">1️⃣ PERSON</button>
+                    <button class="entity-btn ORG" onclick="createEntity('ORG')" title="Press 2">2️⃣ ORG</button>
+                    <button class="entity-btn GPE" onclick="createEntity('GPE')" title="Press 3">3️⃣ GPE</button>
+                    <button class="entity-btn LOC" onclick="createEntity('LOC')" title="Press 4">4️⃣ LOC</button>
+                    <button class="entity-btn DATE" onclick="createEntity('DATE')" title="Press 5">5️⃣ DATE</button>
+                    <button class="entity-btn TIME" onclick="createEntity('TIME')" title="Press 6">6️⃣ TIME</button>
+                    <button class="entity-btn MONEY" onclick="createEntity('MONEY')" title="Press 7">7️⃣ MONEY</button>
+                    <button class="entity-btn PERCENT" onclick="createEntity('PERCENT')" title="Press 8">8️⃣ PERCENT</button>
+                    <button class="entity-btn CARDINAL" onclick="createEntity('CARDINAL')" title="Press 9">9️⃣ CARDINAL</button>
+                    <button class="entity-btn ORDINAL" onclick="createEntity('ORDINAL')" title="Press 0">0️⃣ ORDINAL</button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection()" title="Press Esc">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Edit Controls -->
+            <div id="edit-controls" class="edit-controls hidden">
+                <strong>Editing entity:</strong> <span id="edit-entity-text"></span> 
+                <span class="badge bg-secondary" id="edit-entity-label"></span>
+                <div class="entity-buttons">
+                    <button class="entity-btn PERSON" onclick="updateEntity('PERSON')" title="Press 1">1️⃣ PERSON</button>
+                    <button class="entity-btn ORG" onclick="updateEntity('ORG')" title="Press 2">2️⃣ ORG</button>
+                    <button class="entity-btn GPE" onclick="updateEntity('GPE')" title="Press 3">3️⃣ GPE</button>
+                    <button class="entity-btn LOC" onclick="updateEntity('LOC')" title="Press 4">4️⃣ LOC</button>
+                    <button class="entity-btn DATE" onclick="updateEntity('DATE')" title="Press 5">5️⃣ DATE</button>
+                    <button class="entity-btn TIME" onclick="updateEntity('TIME')" title="Press 6">6️⃣ TIME</button>
+                    <button class="entity-btn MONEY" onclick="updateEntity('MONEY')" title="Press 7">7️⃣ MONEY</button>
+                    <button class="entity-btn PERCENT" onclick="updateEntity('PERCENT')" title="Press 8">8️⃣ PERCENT</button>
+                    <button class="entity-btn CARDINAL" onclick="updateEntity('CARDINAL')" title="Press 9">9️⃣ CARDINAL</button>
+                    <button class="entity-btn ORDINAL" onclick="updateEntity('ORDINAL')" title="Press 0">0️⃣ ORDINAL</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteEntity()" title="Press Delete/Backspace">🗑️ Delete</button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="clearSelection()" title="Press Esc">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Instructions -->
+            <div id="instructions">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="stats">
+                        <span id="entity-count">0 entities</span>
+                        <span id="token-count">0 tokens</span>
+                    </div>
+                    <small class="text-muted">
+                        💡 <strong>Tips:</strong> Select text to create entities • Click entities to edit • Use Esc to cancel • Double-click entities for quick edit
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Text Display -->
+        <div id="text-display" class="text-display">
+            Select a file to start annotating...
+        </div>
+
+        <!-- IOB Visualization -->
+        <div class="controls hidden" id="iob-section">
+            <h5 class="mb-3">IOB Format Visualization</h5>
+            <div id="iob-container" style="max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 14px; line-height: 1.8;">
+                <!-- IOB tags will be displayed here -->
+            </div>
+        </div>
+
+        <!-- Status Messages -->
+        <div id="status-messages"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Global state
+        let currentEntities = [];
+        let currentTokens = [];
+        let currentText = '';
+        let selectedEntityIndex = null;
+        let selectedRange = null;
+        
+        // DOM elements
+        const fileSelector = document.getElementById('file-selector');
+        const loadFileBtn = document.getElementById('load-file');
+        const textDisplay = document.getElementById('text-display');
+        const annotationControls = document.getElementById('annotation-controls');
+        const selectionInfo = document.getElementById('selection-info');
+        const editControls = document.getElementById('edit-controls');
+        const selectedText = document.getElementById('selected-text');
+        const editEntityText = document.getElementById('edit-entity-text');
+        const editEntityLabel = document.getElementById('edit-entity-label');
+        const exportBtn = document.getElementById('export-btn');
+        const statusMessages = document.getElementById('status-messages');
+        const entityCount = document.getElementById('entity-count');
+        const tokenCount = document.getElementById('token-count');
+        const iobSection = document.getElementById('iob-section');
+        const iobContainer = document.getElementById('iob-container');
+        
+        // Enable load button when file is selected
+        fileSelector.addEventListener('change', function() {
+            loadFileBtn.disabled = !this.value;
+        });
+        
+        // Load file
+        loadFileBtn.addEventListener('click', async function() {
+            const filePath = fileSelector.value;
+            if (!filePath) return;
+            
+            try {
+                const response = await fetch('/api/process_file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file_path: filePath })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentText = data.text;
+                    currentEntities = data.entities;
+                    currentTokens = data.tokens;
+                    
+                    renderText();
+                    renderIOB();
+                    updateStats();
+                    annotationControls.classList.remove('hidden');
+                    iobSection.classList.remove('hidden');
+                    exportBtn.disabled = false;
+                    
+                    showMessage('File loaded successfully!', 'success');
+                } else {
+                    showMessage('Error: ' + data.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'danger');
+            }
+        });
+        
+        // Render text with entities
+        function renderText() {
+            if (!currentText) return;
+            
+            // Sort entities by start position
+            const sortedEntities = [...currentEntities].sort((a, b) => a.start - b.start);
+            
+            let html = '';
+            let lastEnd = 0;
+            
+            sortedEntities.forEach((entity, index) => {
+                // Add text before entity
+                if (entity.start > lastEnd) {
+                    html += escapeHtml(currentText.slice(lastEnd, entity.start));
+                }
+                
+                // Add entity with enhanced interactions
+                html += `<span class="entity entity-${entity.label}" data-index="${index}" 
+                           onclick="selectEntity(${index})" 
+                           ondblclick="quickEditEntity(${index})"
+                           title="Click to select, double-click for quick edit">
+                    ${escapeHtml(entity.text)}<span class="entity-label">${entity.label}</span>
+                </span>`;
+                
+                lastEnd = entity.end;
+            });
+            
+            // Add remaining text
+            if (lastEnd < currentText.length) {
+                html += escapeHtml(currentText.slice(lastEnd));
+            }
+            
+            textDisplay.innerHTML = html;
+            
+            // Remove old event listeners to prevent duplicates
+            textDisplay.removeEventListener('mouseup', handleTextSelection);
+            textDisplay.removeEventListener('selectstart', handleSelectStart);
+            
+            // Add text selection listeners
+            textDisplay.addEventListener('mouseup', handleTextSelection);
+            textDisplay.addEventListener('selectstart', handleSelectStart);
+        }
+        
+        function handleSelectStart(e) {
+            console.log('Selection started');
+            // Clear any existing selection info
+            if (!selectedRange) {
+                hideAllControls();
+            }
+        }
+        
+        // Global selection change handler (only set once)
+        if (!window.selectionChangeHandlerSet) {
+            document.addEventListener('selectionchange', function() {
+                setTimeout(() => {
+                    const selection = window.getSelection();
+                    if (selection.rangeCount > 0) {
+                        const range = selection.getRangeAt(0);
+                        if (textDisplay && textDisplay.contains(range.commonAncestorContainer)) {
+                            // Only handle if the selection is meaningful
+                            if (selection.toString().trim().length > 0) {
+                                handleTextSelection();
+                            }
+                        }
+                    }
+                }, 50); // Increased delay for more reliable detection
+            });
+            window.selectionChangeHandlerSet = true;
+        }
+        
+        // Global keyboard shortcuts (only set once)
+        if (!window.keyboardHandlerSet) {
+            document.addEventListener('keydown', function(e) {
+                // Escape key - clear selection
+                if (e.key === 'Escape') {
+                    clearSelection();
+                    e.preventDefault();
+                }
+                
+                // Number keys for quick entity creation when text is selected
+                if (selectedRange && selectedEntityIndex === null) {
+                    const entityTypes = ['PERSON', 'ORG', 'GPE', 'LOC', 'DATE', 'TIME', 'MONEY', 'PERCENT', 'CARDINAL', 'ORDINAL'];
+                    const keyNum = parseInt(e.key);
+                    if (keyNum >= 1 && keyNum <= 9) {
+                        createEntity(entityTypes[keyNum - 1]);
+                        e.preventDefault();
+                    } else if (e.key === '0') {
+                        createEntity(entityTypes[9]); // ORDINAL
+                        e.preventDefault();
+                    }
+                }
+                
+                // Number keys for quick entity editing when entity is selected
+                if (selectedEntityIndex !== null) {
+                    const entityTypes = ['PERSON', 'ORG', 'GPE', 'LOC', 'DATE', 'TIME', 'MONEY', 'PERCENT', 'CARDINAL', 'ORDINAL'];
+                    const keyNum = parseInt(e.key);
+                    if (keyNum >= 1 && keyNum <= 9) {
+                        updateEntity(entityTypes[keyNum - 1]);
+                        e.preventDefault();
+                    } else if (e.key === '0') {
+                        updateEntity(entityTypes[9]); // ORDINAL
+                        e.preventDefault();
+                    }
+                    
+                    // Delete key - delete selected entity
+                    if (e.key === 'Delete' || e.key === 'Backspace') {
+                        deleteEntity();
+                        e.preventDefault();
+                    }
+                }
+            });
+            window.keyboardHandlerSet = true;
+        }
+        
+        // Handle text selection with token boundary snapping
+        function handleTextSelection(event) {
+            const selection = window.getSelection();
+            const selectedText = selection.toString().trim();
+            
+            console.log('Text selected:', selectedText); // Debug log
+            
+            if (selectedText.length > 0) {
+                // Check if selection is not within an existing entity
+                const range = selection.getRangeAt(0);
+                
+                // Check if we're selecting within an entity
+                let isWithinEntity = false;
+                const startContainer = range.startContainer;
+                const endContainer = range.endContainer;
+                
+                // Check if either endpoint is within an entity
+                let startParent = startContainer.nodeType === Node.TEXT_NODE ? startContainer.parentElement : startContainer;
+                let endParent = endContainer.nodeType === Node.TEXT_NODE ? endContainer.parentElement : endContainer;
+                
+                while (startParent && startParent !== textDisplay) {
+                    if (startParent.classList && startParent.classList.contains('entity')) {
+                        isWithinEntity = true;
+                        break;
+                    }
+                    startParent = startParent.parentElement;
+                }
+                
+                if (!isWithinEntity) {
+                    while (endParent && endParent !== textDisplay) {
+                        if (endParent.classList && endParent.classList.contains('entity')) {
+                            isWithinEntity = true;
+                            break;
+                        }
+                        endParent = endParent.parentElement;
+                    }
+                }
+                
+                if (!isWithinEntity) {
+                    const textStart = getTextOffsetFromRange(range, true);
+                    const textEnd = getTextOffsetFromRange(range, false);
+                    
+                    console.log('Selection range:', textStart, textEnd); // Debug log
+                    
+                    // Snap to token boundaries
+                    const snappedRange = snapToTokenBoundaries(textStart, textEnd);
+                    
+                    console.log('Snapped range:', snappedRange); // Debug log
+                    
+                    if (snappedRange) {
+                        selectedRange = snappedRange;
+                        document.getElementById('selected-text').textContent = snappedRange.text;
+                        
+                        // Highlight the snapped selection
+                        highlightSelection(snappedRange);
+                        showSelectionInfo();
+                        
+                        console.log('Showing selection info'); // Debug log
+                    }
+                }
+            } else {
+                // Clear selection if no text selected
+                if (selectedRange) {
+                    clearSelection();
+                }
+            }
+        }
+        
+        // Snap selection to nearest token boundaries
+        function snapToTokenBoundaries(start, end) {
+            if (!currentTokens || currentTokens.length === 0) {
+                return null;
+            }
+            
+            let startToken = null;
+            let endToken = null;
+            
+            // Find the appropriate start token
+            for (let i = 0; i < currentTokens.length; i++) {
+                const token = currentTokens[i];
+                
+                // If selection starts within this token, use this token as start
+                if (start >= token.start_char && start < token.end_char) {
+                    startToken = i;
+                    break;
+                }
+                // If selection starts before this token, use this token as start
+                else if (start < token.start_char) {
+                    startToken = i;
+                    break;
+                }
+            }
+            
+            // Find the appropriate end token
+            for (let i = currentTokens.length - 1; i >= 0; i--) {
+                const token = currentTokens[i];
+                
+                // If selection ends within this token, use this token as end
+                if (end > token.start_char && end <= token.end_char) {
+                    endToken = i;
+                    break;
+                }
+                // If selection ends after this token, use this token as end
+                else if (end > token.end_char) {
+                    endToken = i;
+                    break;
+                }
+            }
+            
+            // Fallback: if we couldn't find tokens, find closest ones
+            if (startToken === null) {
+                startToken = 0;
+            }
+            if (endToken === null) {
+                endToken = currentTokens.length - 1;
+            }
+            
+            // Ensure startToken <= endToken
+            if (startToken > endToken) {
+                [startToken, endToken] = [endToken, startToken];
+            }
+            
+            const snapStart = currentTokens[startToken].start_char;
+            const snapEnd = currentTokens[endToken].end_char;
+            const snapText = currentText.slice(snapStart, snapEnd);
+            
+            return {
+                text: snapText,
+                start: snapStart,
+                end: snapEnd,
+                startToken: startToken,
+                endToken: endToken + 1  // +1 because spaCy uses exclusive end
+            };
+        }
+        
+        // Highlight the selected text range
+        function highlightSelection(range) {
+            // Clear previous highlights
+            clearSelectionHighlight();
+            
+            // Add temporary highlight
+            const textDisplayClone = textDisplay.cloneNode(true);
+            let html = '';
+            let lastEnd = 0;
+            
+            // Sort entities by start position
+            const sortedEntities = [...currentEntities].sort((a, b) => a.start - b.start);
+            
+            sortedEntities.forEach((entity, index) => {
+                // Add text before entity, checking for selection highlight
+                if (entity.start > lastEnd) {
+                    const beforeText = currentText.slice(lastEnd, entity.start);
+                    html += addSelectionHighlight(beforeText, lastEnd, range);
+                }
+                
+                // Add entity
+                html += `<span class="entity entity-${entity.label}" data-index="${index}" onclick="selectEntity(${index})">
+                    ${escapeHtml(entity.text)}<span class="entity-label">${entity.label}</span>
+                </span>`;
+                
+                lastEnd = entity.end;
+            });
+            
+            // Add remaining text
+            if (lastEnd < currentText.length) {
+                const remainingText = currentText.slice(lastEnd);
+                html += addSelectionHighlight(remainingText, lastEnd, range);
+            }
+            
+            textDisplay.innerHTML = html;
+        }
+        
+        // Add selection highlight to text segment
+        function addSelectionHighlight(text, textStart, range) {
+            const textEnd = textStart + text.length;
+            
+            // Check if this text segment overlaps with selection
+            if (range.start < textEnd && range.end > textStart) {
+                const highlightStart = Math.max(0, range.start - textStart);
+                const highlightEnd = Math.min(text.length, range.end - textStart);
+                
+                return escapeHtml(text.slice(0, highlightStart)) +
+                       `<span class="selection-highlight">` +
+                       escapeHtml(text.slice(highlightStart, highlightEnd)) +
+                       '</span>' +
+                       escapeHtml(text.slice(highlightEnd));
+            }
+            
+            return escapeHtml(text);
+        }
+        
+        // Clear selection highlight
+        function clearSelectionHighlight() {
+            renderText();
+        }
+        
+        // Get text offset from range - more reliable method
+        function getTextOffsetFromRange(range, isStart) {
+            const clonedRange = range.cloneRange();
+            clonedRange.selectNodeContents(textDisplay);
+            
+            if (isStart) {
+                clonedRange.setEnd(range.startContainer, range.startOffset);
+            } else {
+                clonedRange.setEnd(range.endContainer, range.endOffset);
+            }
+            
+            // Get text content up to the position, but clean it of HTML
+            const textContent = clonedRange.toString();
+            return textContent.length;
+        }
+        
+        // Alternative method: Get plain text position by walking through text nodes
+        function getPlainTextPosition(container, offset, isStart = true) {
+            const walker = document.createTreeWalker(
+                textDisplay,
+                NodeFilter.SHOW_TEXT,
+                {
+                    acceptNode: function(node) {
+                        // Skip text nodes that are part of entity labels
+                        const parent = node.parentElement;
+                        if (parent && parent.classList.contains('entity-label')) {
+                            return NodeFilter.FILTER_REJECT;
+                        }
+                        return NodeFilter.FILTER_ACCEPT;
+                    }
+                },
+                false
+            );
+            
+            let textOffset = 0;
+            let currentNode;
+            
+            while (currentNode = walker.nextNode()) {
+                if (currentNode === container) {
+                    return textOffset + offset;
+                }
+                textOffset += currentNode.textContent.length;
+            }
+            
+            return textOffset;
+        }
+        
+        // Select entity for editing
+        function selectEntity(index) {
+            clearSelection();
+            selectedEntityIndex = index;
+            const entity = currentEntities[index];
+            
+            editEntityText.textContent = entity.text;
+            editEntityLabel.textContent = entity.label;
+            showEditControls();
+            
+            // Highlight selected entity
+            const entitySpan = document.querySelector(`[data-index="${index}"]`);
+            if (entitySpan) {
+                entitySpan.classList.add('selected');
+            }
+        }
+        
+        // Quick edit entity (double-click functionality)
+        function quickEditEntity(index) {
+            selectEntity(index);
+            // Focus on the first entity button for quick keyboard navigation
+            const firstEntityBtn = document.querySelector('#edit-controls .entity-btn');
+            if (firstEntityBtn) {
+                firstEntityBtn.focus();
+            }
+        }
+        
+        // Create new entity
+        async function createEntity(label) {
+            if (!selectedRange) return;
+            
+            try {
+                const response = await fetch('/api/add_entity', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        entities: currentEntities,
+                        tokens: currentTokens,
+                        text: currentText,
+                        entity_text: selectedRange.text,
+                        label: label,
+                        start_char: selectedRange.start,
+                        end_char: selectedRange.end
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    currentEntities = data.entities;
+                    renderText();
+                    renderIOB();
+                    updateStats();
+                    clearSelection();
+                    showMessage(`Created ${label} entity: "${selectedRange.text}"`, 'success');
+                } else {
+                    showMessage('Error: ' + data.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'danger');
+            }
+        }
+        
+        // Update entity
+        async function updateEntity(newLabel) {
+            if (selectedEntityIndex === null) return;
+            
+            try {
+                const response = await fetch('/api/update_entity', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        entities: currentEntities,
+                        tokens: currentTokens,
+                        entity_id: selectedEntityIndex,
+                        new_label: newLabel
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const oldLabel = currentEntities[selectedEntityIndex].label;
+                    currentEntities = data.entities;
+                    renderText();
+                    renderIOB();
+                    updateStats();
+                    clearSelection();
+                    showMessage(`Updated entity from ${oldLabel} to ${newLabel}`, 'success');
+                } else {
+                    showMessage('Error: ' + data.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'danger');
+            }
+        }
+        
+        // Delete entity
+        async function deleteEntity() {
+            if (selectedEntityIndex === null) return;
+            
+            try {
+                const response = await fetch('/api/delete_entity', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        entities: currentEntities,
+                        tokens: currentTokens,
+                        entity_id: selectedEntityIndex
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const deletedEntity = currentEntities[selectedEntityIndex];
+                    currentEntities = data.entities;
+                    renderText();
+                    renderIOB();
+                    updateStats();
+                    clearSelection();
+                    showMessage(`Deleted entity: "${deletedEntity.text}"`, 'success');
+                } else {
+                    showMessage('Error: ' + data.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'danger');
+            }
+        }
+        
+        // Clear selection
+        function clearSelection() {
+            selectedEntityIndex = null;
+            selectedRange = null;
+            
+            // Clear browser selection
+            if (window.getSelection) {
+                window.getSelection().removeAllRanges();
+            }
+            
+            // Remove highlights
+            document.querySelectorAll('.entity.selected').forEach(el => {
+                el.classList.remove('selected');
+            });
+            
+            // Clear selection highlight and re-render clean text
+            clearSelectionHighlight();
+            
+            hideAllControls();
+        }
+        
+        // Render IOB visualization
+        function renderIOB() {
+            const iobTags = generateIOBTags();
+            let html = '<div style="display: flex; flex-wrap: wrap; gap: 8px;">';
+            
+            iobTags.forEach((tag, index) => {
+                const isEntity = tag['NE-COARSE-LIT'] !== 'O';
+                const backgroundColor = isEntity ? getEntityColor(tag['NE-COARSE-LIT']) : '#f8f9fa';
+                const textColor = isEntity ? '#000' : '#666';
+                
+                html += `<div style="background: ${backgroundColor}; 
+                                    color: ${textColor}; 
+                                    padding: 4px 6px; 
+                                    border-radius: 3px; 
+                                    border: 1px solid #ddd;
+                                    font-size: 12px;
+                                    display: flex;
+                                    flex-direction: column;
+                                    align-items: center;
+                                    min-width: 60px;">
+                    <div style="font-weight: bold;">${escapeHtml(tag.TOKEN)}</div>
+                    <div style="font-size: 10px; margin-top: 2px;">${tag['NE-COARSE-LIT']}</div>
+                </div>`;
+            });
+            
+            html += '</div>';
+            iobContainer.innerHTML = html;
+        }
+        
+        // Get entity color for IOB visualization
+        function getEntityColor(iobTag) {
+            if (iobTag === 'O') return '#f8f9fa';
+            
+            const label = iobTag.replace(/^[BI]-/, '');
+            const colors = {
+                'PERSON': '#aa9cfc',
+                'ORG': '#7aecec',
+                'GPE': '#feca57',
+                'LOC': '#ff9ff3',
+                'DATE': '#bfe1d9',
+                'TIME': '#bfe1d9',
+                'MONEY': '#e4e7d2',
+                'PERCENT': '#e4e7d2',
+                'CARDINAL': '#e4e7d2',
+                'ORDINAL': '#e4e7d2'
+            };
+            
+            return colors[label] || '#ddd';
+        }
+        
+        // Show/hide controls
+        function showSelectionInfo() {
+            hideAllControls();
+            selectionInfo.classList.remove('hidden');
+        }
+        
+        function showEditControls() {
+            hideAllControls();
+            editControls.classList.remove('hidden');
+        }
+        
+        function hideAllControls() {
+            selectionInfo.classList.add('hidden');
+            editControls.classList.add('hidden');
+        }
+        
+        // Update stats
+        function updateStats() {
+            entityCount.textContent = `${currentEntities.length} entities`;
+            tokenCount.textContent = `${currentTokens.length} tokens`;
+        }
+        
+        // Export annotations
+        exportBtn.addEventListener('click', async function() {
+            try {
+                // Generate IOB tags
+                const iobTags = generateIOBTags();
+                
+                const response = await fetch('/api/export', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        iob_tags: iobTags,
+                        filename: `annotations_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.tsv`
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showMessage(`Exported! <a href="/${data.file_path}" download>Download</a>`, 'success');
+                } else {
+                    showMessage('Error: ' + data.error, 'danger');
+                }
+            } catch (error) {
+                showMessage('Error: ' + error.message, 'danger');
+            }
+        });
+        
+        // Generate IOB tags (simplified client-side version)
+        function generateIOBTags() {
+            const iobTags = [];
+            
+            currentTokens.forEach((token, i) => {
+                let label = 'O';
+                
+                // Find if token is part of any entity
+                for (const entity of currentEntities) {
+                    if (i >= entity.start_token && i < entity.end_token) {
+                        label = (i === entity.start_token) ? `B-${entity.label}` : `I-${entity.label}`;
+                        break;
+                    }
+                }
+                
+                iobTags.push({
+                    'TOKEN': token.text,
+                    'NE-COARSE-LIT': label,
+                    'NE-COARSE-METO': '_',
+                    'NE-FINE-LIT': '_',
+                    'NE-FINE-METO': '_',
+                    'NE-FINE-COMP': '_',
+                    'NE-NESTED': '_',
+                    'NEL-LIT': '_',
+                    'NEL-METO': '_',
+                    'MISC': '_'
+                });
+            });
+            
+            return iobTags;
+        }
+        
+        // Utility functions
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function showMessage(message, type = 'info') {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show mt-3`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            statusMessages.appendChild(alertDiv);
+            
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
+
