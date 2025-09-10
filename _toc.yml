@@ -2,9 +2,7 @@ format: jb-book
 root: intro
 
 chapters:
-- file: notebooks/named_entity_recognition
-  title: Named Entity Recognition
 - file: notebooks/ner
-  title: NER Implementation
+  title: Named Entity Recognition
 - file: notebooks/disambiguation
   title: Entity Disambiguation
