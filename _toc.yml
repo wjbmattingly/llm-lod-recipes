@@ -1,0 +1,6 @@
+format: jb-book
+root: intro
+
+chapters:
+- file: notebooks/ner.ipynb
+- file: notebooks/disambiguation.ipynb
