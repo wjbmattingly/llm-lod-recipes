@@ -1,8 +1,24 @@
 format: jb-book
 root: intro
 
-chapters:
-- file: notebooks/ner
-  title: Named Entity Recognition
-- file: notebooks/disambiguation
-  title: Entity Disambiguation
+parts:
+- title: Concepts
+  chapters:
+    - file: notebooks/concepts/lod
+      title: Linked Open Data
+    - file: notebooks/concepts/llms
+      title: Large Language Models
+    - file: notebooks/concepts/ner
+      title: Named Entity Recognition
+    - file: notebooks/concepts/disambiguation
+      title: Entity Disambiguation
+    - file: notebooks/concepts/relationship
+      title: Relationship Extraction
+- title: LLM Recipes
+  chapters:
+    - file: notebooks/llm/ner
+      title: Named Entity Recognition
+    - file: notebooks/llm/disambiguation
+      title: Entity Disambiguation
+
+
